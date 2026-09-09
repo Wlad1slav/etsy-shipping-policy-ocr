@@ -67,27 +67,21 @@ async function runOcr(imagePaths) {
   return JSON.parse(stdout);
 }
 
-function translatedChargeType(value) {
-  if (value === "Free shipping") return "Безкоштовна доставка";
-  if (value === "Fixed price") return "Фіксована ціна";
-  return "";
-}
-
-function translatedOcrStatus(value) {
+function displayOcrStatus(value) {
   if (value === "OK") return "OK";
   const missing = value.replace(/^Review:\s*missing\s*/, "").split(", ");
   if (missing.includes("charge type") && missing.includes("one-item price") && missing.includes("additional-item price")) {
-    return "Перевірити: блок обрізано";
+    return "Review: screenshot block is cropped";
   }
   if (missing.includes("one-item price") && missing.includes("additional-item price")) {
-    return "Перевірити: немає обох цін";
+    return "Review: both prices are missing";
   }
-  return "Перевірити OCR";
+  return "Review OCR";
 }
 
 async function createWorkbook(screenshots, outputPath) {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Etsy shipping screenshot extractor";
+  workbook.creator = "Etsy Shipping Policy OCR";
   workbook.created = new Date();
   workbook.modified = new Date();
   workbook.calcProperties.fullCalcOnLoad = true;
@@ -107,22 +101,22 @@ async function createWorkbook(screenshots, outputPath) {
     });
 
     sheet.mergeCells("A1:H1");
-    sheet.getCell("A1").value = `Політика доставки Etsy — ${screenshot.sku}`;
+    sheet.getCell("A1").value = `Etsy shipping policy - ${screenshot.sku}`;
     sheet.getCell("A1").font = { name: "Aptos Display", bold: true, color: { argb: "FFFFFFFF" }, size: 16 };
     sheet.getCell("A1").fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1641E" } };
     sheet.getCell("A1").alignment = { vertical: "middle", horizontal: "left" };
     sheet.getRow(1).height = 30;
 
-    sheet.getCell("A3").value = "Артикул";
+    sheet.getCell("A3").value = "SKU";
     sheet.mergeCells("B3:D3");
     sheet.getCell("B3").value = screenshot.sku;
-    sheet.getCell("E3").value = "Файл";
+    sheet.getCell("E3").value = "Source file";
     sheet.mergeCells("F3:H3");
     sheet.getCell("F3").value = screenshot.sourceFile;
-    sheet.getCell("A4").value = "Профіль";
+    sheet.getCell("A4").value = "Profile";
     sheet.mergeCells("B4:D4");
     sheet.getCell("B4").value = screenshot.profileName || "—";
-    sheet.getCell("E4").value = "Відправлення";
+    sheet.getCell("E4").value = "Ships from";
     sheet.mergeCells("F4:H4");
     const origin = [screenshot.originCountry, screenshot.originPostalCode].filter(Boolean).join(", ");
     sheet.getCell("F4").value = origin || "—";
@@ -134,28 +128,28 @@ async function createWorkbook(screenshots, outputPath) {
     }
 
     const headers = [
-      "№",
-      "Країна / регіон",
-      "Служба доставки",
-      "Строк доставки",
-      "Тип тарифу",
-      "Один товар, USD",
-      "Додатковий товар, USD",
-      "Статус OCR",
+      "#",
+      "Country / region",
+      "Shipping service",
+      "Delivery estimate",
+      "Charge type",
+      "One item (USD)",
+      "Additional item (USD)",
+      "OCR status",
     ];
     const body = screenshot.rows.map((row, rowIndex) => [
       rowIndex + 1,
       row.destination,
       row.shippingService,
       row.deliveryEstimate,
-      translatedChargeType(row.chargeType),
+      row.chargeType,
       row.oneItemUsd,
       row.additionalItemUsd,
-      translatedOcrStatus(row.ocrStatus),
+      displayOcrStatus(row.ocrStatus),
     ]);
     const tableRows = body.length
       ? body
-      : [[null, "Дані не розпізнано", null, null, null, null, null, "Перевірити"]];
+      : [[null, "No data recognized", null, null, null, null, null, "Review"]];
     sheet.addTable({
       name: `ShippingTable${index + 1}`,
       ref: "A6",
@@ -178,7 +172,7 @@ async function createWorkbook(screenshots, outputPath) {
         row.getCell(column).numFmt = "$#,##0.00";
         row.getCell(column).alignment = { vertical: "middle", horizontal: "right" };
       }
-      if (String(row.getCell(8).value).startsWith("Перевірити")) {
+      if (String(row.getCell(8).value).startsWith("Review")) {
         row.height = 38;
         row.getCell(8).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFDECEC" } };
         row.getCell(8).font = { name: "Aptos", bold: true, color: { argb: "FFA61B1B" } };
@@ -197,7 +191,7 @@ async function createWorkbook(screenshots, outputPath) {
       { width: 29 },
     ];
     sheet.autoFilter = `A6:H${lastRow}`;
-    sheet.headerFooter.oddFooter = `&L${screenshot.sku}&RСторінка &P з &N`;
+    sheet.headerFooter.oddFooter = `&L${screenshot.sku}&RPage &P of &N`;
     sheet.properties.defaultRowHeight = 18;
   }
 
