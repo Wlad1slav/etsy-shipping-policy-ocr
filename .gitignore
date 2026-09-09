@@ -1,0 +1,5 @@
+node_modules/
+tmp/
+outputs/*.ocr.json
+screenshots
+/outputs
