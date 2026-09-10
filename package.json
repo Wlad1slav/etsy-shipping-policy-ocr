@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "extract": "node scripts/extract_shipping.mjs",
+    "import:shopify": "node scripts/import_shopify_shipping.mjs",
     "test": "node --test"
   },
   "engines": {

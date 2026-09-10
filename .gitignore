@@ -1,5 +1,8 @@
 node_modules/
 tmp/
 outputs/*.ocr.json
+.DS_Store
 screenshots
 /outputs
+.env
+/warning/
