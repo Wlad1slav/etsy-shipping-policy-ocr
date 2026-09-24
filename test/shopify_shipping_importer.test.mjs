@@ -54,6 +54,49 @@ test("gives explicit country rows priority over regional fallback rows", () => {
   assert.deepEqual(plan.zones[2].countries, [{ restOfWorld: true }]);
 });
 
+test("maps Puerto Rico to a US province instead of an invalid country code", () => {
+  const plan = buildRatePlan(
+    [shippingRow(7, "Puerto Rico", 89)],
+    { sheetName: "Desks" },
+  );
+
+  assert.deepEqual(plan.zones[0].countries, [{
+    code: "US",
+    provinces: [{ code: "PR" }],
+  }]);
+});
+
+test("excludes Puerto Rico from a separate United States zone", () => {
+  const plan = buildRatePlan(
+    [
+      shippingRow(7, "Puerto Rico", 89),
+      shippingRow(8, "United States", 90),
+    ],
+    { sheetName: "Desks" },
+  );
+
+  assert.deepEqual(plan.zones[0].countries, [{
+    code: "US",
+    provinces: [{ code: "PR" }],
+  }]);
+  assert.equal(plan.zones[1].countries[0].code, "US");
+  assert.equal("includeAllProvinces" in plan.zones[1].countries[0], false);
+  assert.equal(plan.zones[1].countries[0].provinces.length, 61);
+  assert.equal(
+    plan.zones[1].countries[0].provinces.some((province) => province.code === "PR"),
+    false,
+  );
+});
+
+test("keeps includeAllProvinces for United States without a territory override", () => {
+  const plan = buildRatePlan(
+    [shippingRow(7, "United States", 90)],
+    { sheetName: "Desks" },
+  );
+
+  assert.deepEqual(plan.zones[0].countries, [{ code: "US", includeAllProvinces: true }]);
+});
+
 test("skips a missing flat price and records both OCR and price warnings", () => {
   const plan = buildRatePlan(
     [shippingRow(7, "Iceland", null, { additionalItemUsd: null, ocrStatus: "Review: both prices are missing" })],

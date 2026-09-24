@@ -48,7 +48,6 @@ const COUNTRY_CODES = new Map(
     ["Norway", "NO"],
     ["Poland", "PL"],
     ["Portugal", "PT"],
-    ["Puerto Rico", "PR"],
     ["Romania", "RO"],
     ["Singapore", "SG"],
     ["South Korea", "KR"],
@@ -64,6 +63,82 @@ const COUNTRY_CODES = new Map(
     ["United States of America", "US"],
   ].map(([name, code]) => [normalizeKey(name), code]),
 );
+
+const PROVINCE_DESTINATIONS = new Map(
+  [
+    ["Puerto Rico", { countryCode: "US", provinceCode: "PR" }],
+  ].map(([name, destination]) => [normalizeKey(name), destination]),
+);
+
+const COUNTRY_PROVINCE_CODES = new Map([
+  [
+    "US",
+    [
+      "AA",
+      "AE",
+      "AK",
+      "AL",
+      "AP",
+      "AR",
+      "AS",
+      "AZ",
+      "CA",
+      "CO",
+      "CT",
+      "DC",
+      "DE",
+      "FL",
+      "FM",
+      "GA",
+      "GU",
+      "HI",
+      "IA",
+      "ID",
+      "IL",
+      "IN",
+      "KS",
+      "KY",
+      "LA",
+      "MA",
+      "MD",
+      "ME",
+      "MH",
+      "MI",
+      "MN",
+      "MO",
+      "MP",
+      "MS",
+      "MT",
+      "NC",
+      "ND",
+      "NE",
+      "NH",
+      "NJ",
+      "NM",
+      "NV",
+      "NY",
+      "OH",
+      "OK",
+      "OR",
+      "PA",
+      "PR",
+      "PW",
+      "RI",
+      "SC",
+      "SD",
+      "TN",
+      "TX",
+      "UT",
+      "VA",
+      "VI",
+      "VT",
+      "WA",
+      "WI",
+      "WV",
+      "WY",
+    ],
+  ],
+]);
 
 export const EUROPEAN_UNION_CODES = Object.freeze([
   "AT",
@@ -196,6 +271,8 @@ function destinationType(destination) {
   if (key === "european union") return { type: "region", codes: EUROPEAN_UNION_CODES };
   if (key === "europe non-eu") return { type: "region", codes: EUROPE_NON_EU_CODES };
   if (key === "everywhere else") return { type: "restOfWorld" };
+  const province = PROVINCE_DESTINATIONS.get(key);
+  if (province) return { type: "province", ...province };
   const code = COUNTRY_CODES.get(key);
   return code ? { type: "country", code } : { type: "unknown" };
 }
@@ -327,16 +404,34 @@ export function buildRatePlan(rows, { sheetName, currencyCode = "USD" }) {
     validRows.push({ row, destination });
   }
 
-  const explicitByCode = new Map();
+  const explicitCountriesByCode = new Map();
+  const explicitProvincesByCode = new Map();
   const regionRows = [];
   for (const entry of validRows) {
+    if (entry.destination.type === "province") {
+      const code = `${entry.destination.countryCode}:${entry.destination.provinceCode}`;
+      const previous = explicitProvincesByCode.get(code);
+      if (!previous) {
+        explicitProvincesByCode.set(code, entry);
+        continue;
+      }
+      warnings.push({
+        code: "PROVINCE_CODE_COLLISION",
+        message: `${entry.row.destination} maps to the same Shopify province as ${previous.row.destination}; the first worksheet row was selected.`,
+        countryCode: entry.destination.countryCode,
+        provinceCode: entry.destination.provinceCode,
+        selected: warningRow(previous.row),
+        ignored: [warningRow(entry.row)],
+      });
+      continue;
+    }
     if (entry.destination.type !== "country") {
       regionRows.push(entry);
       continue;
     }
-    const previous = explicitByCode.get(entry.destination.code);
+    const previous = explicitCountriesByCode.get(entry.destination.code);
     if (!previous) {
-      explicitByCode.set(entry.destination.code, entry);
+      explicitCountriesByCode.set(entry.destination.code, entry);
       continue;
     }
     warnings.push({
@@ -348,9 +443,18 @@ export function buildRatePlan(rows, { sheetName, currencyCode = "USD" }) {
     });
   }
 
-  const explicitCodes = new Set(explicitByCode.keys());
+  const explicitCodes = new Set(explicitCountriesByCode.keys());
+  const excludedProvincesByCountry = new Map();
+  for (const entry of explicitProvincesByCode.values()) {
+    const { countryCode, provinceCode } = entry.destination;
+    if (!excludedProvincesByCountry.has(countryCode)) {
+      excludedProvincesByCountry.set(countryCode, new Set());
+    }
+    excludedProvincesByCountry.get(countryCode).add(provinceCode);
+  }
   const zoneEntries = [
-    ...explicitByCode.values(),
+    ...explicitCountriesByCode.values(),
+    ...explicitProvincesByCode.values(),
     ...regionRows,
   ].sort((left, right) => left.row.rowNumber - right.row.rowNumber);
 
@@ -358,7 +462,28 @@ export function buildRatePlan(rows, { sheetName, currencyCode = "USD" }) {
   for (const { row, destination } of zoneEntries) {
     let countries;
     if (destination.type === "country") {
-      countries = [{ code: destination.code, includeAllProvinces: true }];
+      const excludedProvinces = excludedProvincesByCountry.get(destination.code);
+      if (!excludedProvinces?.size) {
+        countries = [{ code: destination.code, includeAllProvinces: true }];
+      } else {
+        const provinceCodes = COUNTRY_PROVINCE_CODES.get(destination.code);
+        if (!provinceCodes) {
+          throw new Error(
+            `Cannot separate province-specific rates from ${row.destination}: no Shopify province list is configured for ${destination.code}.`,
+          );
+        }
+        countries = [{
+          code: destination.code,
+          provinces: provinceCodes
+            .filter((code) => !excludedProvinces.has(code))
+            .map((code) => ({ code })),
+        }];
+      }
+    } else if (destination.type === "province") {
+      countries = [{
+        code: destination.countryCode,
+        provinces: [{ code: destination.provinceCode }],
+      }];
     } else if (destination.type === "restOfWorld") {
       countries = [{ restOfWorld: true }];
     } else {
