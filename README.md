@@ -242,6 +242,46 @@ View the importer help:
 npm run import:shopify -- --help
 ```
 
+## Auditing Shopify shipping policies
+
+The read-only Shopify audit checks every product variant, including variants of draft and archived products. It creates an Excel report with separate worksheets for:
+
+- physical variants that do not have their own custom shipping policy and instead use the general/global profile or no profile;
+- products with at least one such variant, shown once per product and excluding `DRAFT` and `ARCHIVED` products;
+- variants that cannot currently be ordered in the Online Store;
+- all variants and the shipping profile applied to each one.
+
+Run the audit with the same `SHOPIFY_STORE`, `SHOPIFY_API_TOKEN`, and `SHOPIFY_API_VERSION` values used by the importer:
+
+```bash
+npm run audit:shopify
+```
+
+The token needs `read_products` and `read_shipping` (or the corresponding write scopes). By default, the reports are written to:
+
+```text
+outputs/shopify_shipping_audit.xlsx
+outputs/shopify_shipping_audit.json
+```
+
+The Excel workbook contains `Summary`, `Products Without Custom Policy`, `Variants Without Custom Policy`, `Unavailable Variants`, and `All Variants` worksheets. `Products Without Custom Policy` contains one row per eligible product instead of one row per variant. The JSON file contains the same classifications for further automation.
+
+A physical variant is treated as definitely blocked by shipping only when its delivery profile is missing, has no origin location, or has no active shipping rates. A profile with at least one active rate may still exclude a specific destination, so the audit does not claim that every country can check out.
+
+Use custom report paths when needed:
+
+```bash
+npm run audit:shopify -- \
+  --output ./outputs/my_shipping_audit.xlsx \
+  --json-output ./outputs/my_shipping_audit.json
+```
+
+View every option:
+
+```bash
+npm run audit:shopify -- --help
+```
+
 ## Workbook structure
 
 Each worksheet contains profile metadata followed by a filterable table with these columns:
